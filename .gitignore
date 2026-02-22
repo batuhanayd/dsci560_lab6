@@ -1,0 +1,19 @@
+# Local config (contains DB password)
+config.py
+# Virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+# Temp folder (raw/OCR text output)
+temp/
+# Debug log
+extract_wells.log
+# Data and exports
+*.csv
+data/
+# PDF data folder
+dsci_lab5/
+DSCI560_Lab5/
