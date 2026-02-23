@@ -4,8 +4,9 @@ Extract **well information** (Figure 1) and **stimulation data** (Figure 2) from
 
 ## Contents
 
-- **`schema.sql`** – Two tables: `wells` (PK: `well_id`), `stimulations` (PK: `stimulation_id`, includes proppant as JSON).
+- **`schema.sql`** – Tables: `wells` (PK: `well_id`), `stimulations` (PK: `stimulation_id`, includes proppant as JSON), `scraped_wells` (PK: `scraped_id`, for scraper output).
 - **`extract_pdf_wells.py`** – Iterates over PDFs, extracts text with pypdf, parses fields, inserts into MySQL. Skips PDFs already in `wells`. Debug logs go to `extract_wells.log`.
+- **`scraper_wells.py`** – Loads wells from the `wells` table, looks up each on DrillingEdge, scrapes the detail page (api_no, well_name, operator, county, well_status, well_type, closest_city, oil_bbl, gas_mcf, production_dates_on_file), and stores one row per well in `scraped_wells`. Logs to `scraper_wells.log`.
 - **`config.py`** – Set `PDF_FOLDER` and `MYSQL_CONFIG`.
 
 ## Requirements
@@ -60,12 +61,23 @@ python extract_pdf_wells.py --dry-run
 
 Prints parsed well, stimulation, and proppant for the first 3 PDFs.
 
+### Scraper (DrillingEdge)
+
+```bash
+python scraper_wells.py
+```
+
+- Reads wells from the `wells` table (well_id, well_name, api_number).
+- For each well, finds the DrillingEdge URL via search, then fetches the well detail page and parses: api_no, well_name, operator, county, well_status, well_type, closest_city, oil_bbl, gas_mcf, production_dates_on_file.
+- Inserts one row per well into `scraped_wells` (linked by well_id). Skips wells already in `scraped_wells`. Logs to `scraper_wells.log`. Use `--dry-run` to list first 5 wells from DB only.
+
 ## Data extracted
 
 | Table | Primary key | Fields |
 |-------|-------------|--------|
 | **wells** | `well_id` | api_number, well_name, operator, enseco_job_number, job_type, county_state, surface_hole_location, latitude, longitude, datum, source_pdf |
 | **stimulations** | `stimulation_id` | well_id, date_stimulated, stimulated_formation, top_ft, bottom_ft, stimulation_stages, volume, volume_units, type_treatment, acid_pct, lbs_proppant, max_treatment_pressure_psi, max_treatment_rate_bbls_min, proppant_details (JSON) |
+| **scraped_wells** | `scraped_id` | well_id (FK), well_name, api_number, scraped_url, api_no, closest_city, county, gas_mcf, oil_bbl, operator, production_dates_on_file, well_status, well_type |
 
 ## Notes
 

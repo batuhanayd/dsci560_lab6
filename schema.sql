@@ -1,13 +1,7 @@
--- DSCI 560 Lab 6: Oil Well Data - MySQL Schema (two tables only)
--- Run this script to create the database and tables before running the PDF extractor.
--- Example: mysql -u your_user -p < schema.sql
-
 CREATE DATABASE IF NOT EXISTS dsci560_wells;
 USE dsci560_wells;
 
--- Table 1: Well-specific information (Figure 1)
--- Primary key: well_id (one row per well document)
--- Long string columns use TEXT/MEDIUMTEXT to avoid "Data too long" errors
+
 CREATE TABLE IF NOT EXISTS wells (
     well_id INT AUTO_INCREMENT PRIMARY KEY,
     api_number VARCHAR(32) UNIQUE,
@@ -27,8 +21,6 @@ CREATE TABLE IF NOT EXISTS wells (
     INDEX idx_operator (operator(100))
 );
 
--- Table 2: Stimulation data including proppant breakdown (Figure 2)
--- Primary key: stimulation_id (one row per stimulation document; proppant stored as JSON in one column)
 CREATE TABLE IF NOT EXISTS stimulations (
     stimulation_id INT AUTO_INCREMENT PRIMARY KEY,
     well_id INT NOT NULL,
@@ -52,6 +44,25 @@ CREATE TABLE IF NOT EXISTS stimulations (
     INDEX idx_date (date_stimulated)
 );
 
--- If tables already exist, run these to allow long strings (no data loss):
--- ALTER TABLE wells MODIFY well_name TEXT, MODIFY operator TEXT, MODIFY county_state TEXT, MODIFY surface_hole_location MEDIUMTEXT, MODIFY source_pdf VARCHAR(512);
--- ALTER TABLE stimulations MODIFY stimulated_formation TEXT, MODIFY type_treatment TEXT, MODIFY proppant_details MEDIUMTEXT;
+
+CREATE TABLE IF NOT EXISTS scraped_wells (
+    scraped_id INT AUTO_INCREMENT PRIMARY KEY,
+    well_id INT NULL,
+    well_name MEDIUMTEXT,
+    api_number VARCHAR(32) NULL,
+    scraped_url MEDIUMTEXT,
+    api_no VARCHAR(32) NULL,
+    closest_city VARCHAR(128) NULL,
+    county TEXT NULL,
+    gas_mcf INT NULL,
+    oil_bbl INT NULL,
+    operator TEXT NULL,
+    production_dates_on_file VARCHAR(255) NULL,
+    well_status VARCHAR(64) NULL,
+    well_type VARCHAR(64) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_well_id (well_id),
+    INDEX idx_api (api_number),
+    INDEX idx_well_name (well_name(100)),
+    FOREIGN KEY (well_id) REFERENCES wells(well_id) ON DELETE SET NULL
+);

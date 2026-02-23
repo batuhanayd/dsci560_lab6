@@ -11,6 +11,7 @@ __pycache__/
 temp/
 # Debug log
 extract_wells.log
+scraper_wells.log
 # Data and exports
 *.csv
 data/
