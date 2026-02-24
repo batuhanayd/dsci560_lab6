@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DSCI 560 Well Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Leaflet CSS for map styling -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <style>
+    /* Base page styling */
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    /* Full-screen map container */
+    #map {
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* Popup content styling for well details */
+    .popup-wrap {
+      max-width: 520px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .popup-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .section-title {
+      margin-top: 10px;
+      margin-bottom: 4px;
+      font-weight: 700;
+      color: #222;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 2px;
+    }
+
+    table.kv-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 6px;
+    }
+
+    .kv-table td {
+      border: 1px solid #ddd;
+      padding: 4px 6px;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    .kv-table td:first-child {
+      width: 38%;
+      background: #f8f8f8;
+      font-weight: 600;
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 4px;
+    }
+
+    .data-table th,
+    .data-table td {
+      border: 1px solid #ddd;
+      padding: 4px 6px;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    .data-table th {
+      background: #f5f5f5;
+      font-weight: 600;
+    }
+
+    .muted {
+      color: #666;
+      font-style: italic;
+    }
+
+    .proppant-block {
+      margin-top: 6px;
+      padding: 6px;
+      border: 1px dashed #ccc;
+      background: #fafafa;
+    }
+
+    /* Floating stats overlay in top-right corner */
+    .stats-box {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.15);
+    }
+  </style>
+</head>
+<body>
+  <!-- Main map container -->
+  <div id="map"></div>
+  <!-- Stats overlay: shows well count and loading status -->
+  <div class="stats-box" id="statsBox">Loading wells...</div>
+
+  <!-- Leaflet JS for map functionality -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Backend API base URL
+    const API_BASE = "http://localhost:3000";
+
+    // Initialize map centered on California, zoom level 6
+    const map = L.map("map").setView([34.05, -118.25], 6);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    // ---------- helper functions ----------
+    // Escape HTML to prevent XSS in popup content
+    function esc(v) {
+      if (v === null || v === undefined) return "";
+      return String(v)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    // Format and escape display values (null/undefined/empty -> "")
+    function formatValue(v) {
+      if (v === null || v === undefined || v === "") return "";
+      return esc(v);
+    }
+
+    // Build key-value table HTML from object and keys array
+    function kvTable(obj, keys) {
+      const rows = keys
+        .filter(k => obj && obj[k] !== null && obj[k] !== undefined && obj[k] !== "")
+        .map(k => `
+          <tr>
+            <td>${esc(k)}</td>
+            <td>${formatValue(obj[k])}</td>
+          </tr>
+        `)
+        .join("");
+
+      if (!rows) return `<div class="muted">No data</div>`;
+      return `<table class="kv-table">${rows}</table>`;
+    }
+
+    // Parse proppant_details JSON string; returns array or null
+    function parseProppantDetails(raw) {
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    // Render proppant table or raw string if parse fails
+    function renderProppantDetails(raw) {
+      if (!raw) return `<div class="muted">No proppant details</div>`;
+
+      const parsed = parseProppantDetails(raw);
+      if (!parsed) {
+        return `
+          <div class="proppant-block">
+            <div><b>Raw proppant_details:</b></div>
+            <div>${formatValue(raw)}</div>
+          </div>
+        `;
+      }
+
+      const rows = parsed.map((p, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${formatValue(p.proppant_type)}</td>
+          <td>${formatValue(p.lbs)}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <div class="proppant-block">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Proppant Type</th>
+                <th>Lbs</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    // Render all stimulation records with proppant details
+    function renderStimulations(stimulations) {
+      if (!stimulations || stimulations.length === 0) {
+        return `<div class="muted">No stimulation records</div>`;
+      }
+
+      return stimulations.map((s, i) => {
+        const topTable = kvTable(s, [
+          "stimulation_id",
+          "date_stimulated",
+          "stimulated_formation",
+          "top_ft",
+          "bottom_ft",
+          "stimulation_stages",
+          "volume",
+          "volume_units",
+          "type_treatment",
+          "acid_pct",
+          "lbs_proppant",
+          "max_treatment_pressure_psi",
+          "max_treatment_rate_bbls_min",
+          "created_at"
+        ]);
+
+        const proppant = renderProppantDetails(s.proppant_details);
+
+        return `
+          <div style="margin-bottom:10px;">
+            <div style="font-weight:600; margin-bottom:4px;">Stimulation ${i + 1}</div>
+            ${topTable}
+            <div style="font-weight:600; margin:4px 0 2px;">Proppant Details</div>
+            ${proppant}
+          </div>
+        `;
+      }).join("");
+    }
+
+    // Assemble full popup HTML: well info + stimulation data
+    function buildPopupHtml(detail, fallbackName) {
+      const w = detail.well || {};
+      const stimulations = detail.stimulations || [];
+
+      return `
+        <div class="popup-wrap">
+          <div class="popup-title">${formatValue(w.well_name || fallbackName || "Well")}</div>
+
+          <div class="section-title">Well Information</div>
+          ${kvTable(w, [
+            "well_id",
+            "api_number",
+            "well_name",
+            "operator",
+            "enseco_job_number",
+            "job_type",
+            "county_state",
+            "surface_hole_location",
+            "latitude",
+            "longitude",
+            "datum",
+            "source_pdf",
+            "created_at"
+          ])}
+
+          <div class="section-title">Stimulation Data</div>
+          ${renderStimulations(stimulations)}
+        </div>
+      `;
+    }
+
+    // ---------- main ----------
+    // Fetch wells from API, add markers, bind click-to-detail popups
+    async function loadWells() {
+      const statsBox = document.getElementById("statsBox");
+
+      const wells = await fetch(`${API_BASE}/api/wells`).then(r => r.json());
+
+      statsBox.textContent = `Wells loaded: ${wells.length}`;
+
+      const points = [];
+
+      wells.forEach(w => {
+        const lat = Number(w.latitude);
+        const lon = Number(w.longitude);
+
+        // skip invalid coordinates
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+        points.push([lat, lon]);
+
+        const marker = L.marker([lat, lon]).addTo(map);
+
+        marker.bindTooltip(esc(w.name || `Well ${w.well_id}`));
+
+        // Load well detail on click; show popup with well info and stimulations
+        marker.on("click", async () => {
+          try {
+            const detail = await fetch(`${API_BASE}/api/wells/${w.well_id}`).then(r => r.json());
+
+            if (detail.error) {
+              marker.bindPopup(`<div class="popup-wrap"><b>Error:</b> ${esc(detail.error)}</div>`, {
+                maxWidth: 560
+              }).openPopup();
+              return;
+            }
+
+            const html = buildPopupHtml(detail, w.name);
+            marker.bindPopup(html, { maxWidth: 560 }).openPopup();
+          } catch (err) {
+            marker.bindPopup(
+              `<div class="popup-wrap"><b>Request failed:</b> ${esc(err)}</div>`,
+              { maxWidth: 560 }
+            ).openPopup();
+          }
+        });
+      });
+
+      // Fit map bounds to all well locations
+      if (points.length > 0) {
+        const bounds = L.latLngBounds(points);
+        map.fitBounds(bounds, { padding: [30, 30] });
+      }
+    }
+
+    // Entry point: load wells and handle errors
+    loadWells().catch(err => {
+      console.error(err);
+      document.getElementById("statsBox").textContent = "Failed to load wells";
+    });
+  </script>
+</body>
+</html>
