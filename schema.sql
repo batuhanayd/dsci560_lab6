@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS scraped_wells (
     api_no VARCHAR(32) NULL,
     closest_city VARCHAR(128) NULL,
     county TEXT NULL,
+    latitude VARCHAR(32) NULL,
+    longitude VARCHAR(32) NULL,
     gas_mcf INT NULL,
     oil_bbl INT NULL,
     operator TEXT NULL,

@@ -147,10 +147,26 @@ def _text(elem) -> Optional[str]:
     return t if t and "members only" not in t.lower() else None
 
 
+def _split_lat_long(s: Optional[str]) -> tuple:
+    if not s or not isinstance(s, str):
+        return (None, None)
+    s = s.strip()
+    if not s or "members only" in s.lower():
+        return (None, None)
+    if "," in s:
+        parts = s.split(",", 1)
+        lat = parts[0].strip() or None
+        lon = parts[1].strip() if len(parts) > 1 else None
+        lon = lon or None
+        return (lat, lon)
+    return (s, None)
+
+
 def scrape_well_detail(session: requests.Session, url: str) -> dict:
     out = {
         "api_no": None, "well_name": None, "operator": None, "county": None,
         "well_status": None, "well_type": None, "closest_city": None,
+        "latitude": None, "longitude": None,
         "oil_bbl": None, "gas_mcf": None, "production_dates_on_file": None,
     }
     try:
@@ -180,6 +196,18 @@ def scrape_well_detail(session: requests.Session, url: str) -> dict:
                 out["county"] = val
             elif "Production Dates on File" in label:
                 out["production_dates_on_file"] = val
+            elif "Latitude" in label or "Longitude" in label or "Coordinate" in label or ("Lat" in label and "Long" in label):
+                if "," in val:
+                    lat_part, lon_part = _split_lat_long(val)
+                    if lat_part is not None:
+                        out["latitude"] = lat_part
+                    if lon_part is not None:
+                        out["longitude"] = lon_part
+                else:
+                    if "Latitude" in label or "Lat" in label:
+                        out["latitude"] = val
+                    elif "Longitude" in label or "Long" in label:
+                        out["longitude"] = val
 
     table = soup.select_one("table.skinny")
     if table:
@@ -202,6 +230,18 @@ def scrape_well_detail(session: requests.Session, url: str) -> dict:
                     out["well_name"] = val
                 elif key == "Operator" and out["operator"] is None:
                     out["operator"] = val
+                elif ("Latitude" in key or "Longitude" in key or "Coordinate" in key) and val:
+                    if "," in val:
+                        lat_part, lon_part = _split_lat_long(val)
+                        if lat_part is not None and out["latitude"] is None:
+                            out["latitude"] = lat_part
+                        if lon_part is not None and out["longitude"] is None:
+                            out["longitude"] = lon_part
+                    else:
+                        if "Latitude" in key and out["latitude"] is None:
+                            out["latitude"] = val
+                        elif "Longitude" in key and out["longitude"] is None:
+                            out["longitude"] = val
 
     for p in soup.select("p.block_stat"):
         num_span = p.select_one("span.dropcap")
@@ -242,8 +282,9 @@ def insert_scraped(cursor, well_id: Optional[int], data: dict) -> None:
 
     cursor.execute(
         """INSERT INTO scraped_wells (well_id, well_name, api_number, scraped_url, api_no,
-           closest_city, county, gas_mcf, oil_bbl, operator, production_dates_on_file, well_status, well_type)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+           closest_city, county, latitude, longitude, gas_mcf, oil_bbl, operator,
+           production_dates_on_file, well_status, well_type)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (
             well_id,
             v("well_name") or v("name"),
@@ -252,6 +293,8 @@ def insert_scraped(cursor, well_id: Optional[int], data: dict) -> None:
             _trunc(v("api_no"), API_NUMBER_MAX),
             _trunc(v("closest_city"), VARCHAR_128),
             v("county"),
+            _trunc(v("latitude"), 32),
+            _trunc(v("longitude"), 32),
             gas_mcf,
             oil_bbl,
             v("operator"),
